@@ -26,7 +26,6 @@ def map_view(request):
     return render(request, 'map.html', {'secret_key': secret_key})
 
 
-
 @csrf_exempt 
 def save_destination(request):
     if request.method == 'POST':
@@ -38,7 +37,6 @@ def save_destination(request):
         trip.save()
         return JsonResponse({'message': 'Trip saved successfully.'})
     return JsonResponse({'error': 'Invalid request method.'})
-
 
 
 def download_pdf(request):
@@ -76,8 +74,6 @@ def download_pdf(request):
     doc.build(story)
 
     return response
-
-
   
 
 def find_dominant_angle(image_path):
@@ -97,7 +93,7 @@ def find_dominant_angle(image_path):
     if lines is not None:
         angles = [line[0][1] for line in lines]
         median_angle = np.median(angles) * 180 / np.pi - 90
-        print(median_angle, "==================")
+
         if median_angle > 45:
           median_angle = 90 
         elif median_angle > 25 :
@@ -128,7 +124,6 @@ def rotate_image(image_path, angle):
     rotated_image = cv2.warpAffine(image, rotation_matrix, (width, height))
     
     return rotated_image
-
 
 
 def process_image(request):
@@ -171,8 +166,7 @@ def process_image(request):
 
         else:
             print(f"No lines detected in {image_path}.")
-        
-    
+
     return render(request, 'home_page.html')
 
 
