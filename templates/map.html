@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Map Layout</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        body {
+          margin: 0;
+          font-size: 16px
+        }
+        .container {
+          display: flex;
+          align-items: flex-start;
+        }
+
+        .right-container{
+            padding:10px;
+        }
+        
+        .right-side-component{
+            height: 100vh;
+            max-width: 40rem;
+            min-width : 20rem;
+            background-color: #4A89F3;
+        }
+    
+        .map-container {
+          flex: 2;
+          height: 600px;
+          border: 1px solid #ccc;
+        }
+    
+        .search-container {
+          margin-right: 20px;
+          width: 20rem;
+        }
+    
+        .destination-container {
+          width: 20rem
+        }
+        .route_distance{
+            border: 2px solid gray;
+            padding:5px;
+            color: white;
+        }
+    
+        #searchInput {
+          width: 20rem;
+          padding: 10px;
+          border: 1px solid #ccc;
+        }
+    
+        ul {
+          list-style: none;
+          padding: 0;
+          width: 20rem;
+          background-color: white;
+        }
+
+        li{
+            border: 2px solid gray;
+            padding:5px;
+            background-color: white;
+        }
+    
+        h2 {
+          font-size: 1.2em;
+          margin-bottom: 10px;
+        }
+    
+        #routeInfo {
+          margin-top: 20px;
+        }
+        #map {
+            height: 100vh;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="right-side-component">
+        <div class="right-container">
+        <div class="search-container ">
+            <input type="text" id="searchInput" placeholder="Search for a place">
+            <div>
+            <ul  style="list-style-type: none; padding: 0; max-height: 200px; overflow-y: auto; background-color: yellow;">
+                <li id="matchingPlaces" style="cursor: pointer; ;">Add stop</li>
+            </ul>
+        </div>
+        </div>
+        <div class="destination-container">
+            {% comment %} <h2>Selected Destinations:</h2> {% endcomment %}
+            <ul id="selectedDestinations" style="list-style-type: none; padding: 0; max-height: 200px; overflow: auto; border: 1px solid #ccc; ">
+                <li id="selectedDestinations" style="cursor: pointer; padding: 5px; overflow-x: auto; background-color: yellow;"> Destination</li>
+            </ul>
+            <div>
+            <button onclick="saveStops()">Apply</button>
+            <button id="download-btn" style="display: none;">Download PDF</button>
+            </div>
+            <div id="routeInfo" class="route_distance">Total distance : 0 km</div>
+        </div>
+    </div>
+    </div>
+        <div class="map-container">
+            <div id="map"></div>
+        </div>
+    </div>
+      
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+
+    <script>
+        var map = L.map('map').setView([40.7128, -74.0060], 12); // New York City
+        var selectedDestinations = [];
+        var totalDist = 0
+
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        var matchingPlacesList = document.getElementById('matchingPlaces');
+        var selectedDestinationsList = document.getElementById('selectedDestinations');
+        var routeInfo = document.getElementById('routeInfo');
+
+        function clearMatchingPlaces() {
+            matchingPlacesList.innerHTML = '';
+        }
+
+        function addMatchingPlace(place) {
+            var listItem = document.createElement('li');
+            listItem.textContent = place.display_name;
+            listItem.addEventListener('click', function() {
+                // Clear the input and matching places list
+                document.getElementById('searchInput').value = '';
+                clearMatchingPlaces();
+
+                // Add the selected place to the list of destinations
+                addSelectedDestination(place);
+
+                // Add a marker for the selected place on the map
+                var lat = parseFloat(place.lat);
+                var lon = parseFloat(place.lon);
+                var latlng = [lat, lon];
+                var marker = L.marker(latlng).addTo(map);
+
+                // Pan the map to the selected place
+                map.panTo(latlng);
+            });
+
+            matchingPlacesList.appendChild(listItem);
+        }
+
+        function addSelectedDestination(place) {
+            selectedDestinations.push(place);
+
+            // Display selected destination in the list
+            var listItem = document.createElement('li');
+            listItem.textContent = place.display_name;
+            selectedDestinationsList.appendChild(listItem);
+
+            // Calculate and display route if there are at least 2 destinations
+            if (selectedDestinations.length >= 2) {
+                calculateAndDisplayRoute();
+            }
+        }
+
+        function calculateAndDisplayRoute() {
+            if (selectedDestinations.length < 2) {
+                // Not enough destinations to calculate a route
+                return;
+            }
+            var apiKey = "{{secret_key}}"; 
+            
+            var mode = 'driving-car'; 
+        
+            // Clear existing route layers from the map
+            map.eachLayer(layer => {
+                if (layer.options && layer.options.className === 'route-layer') {
+                    map.removeLayer(layer);
+                }
+            });
+        
+            var totalDistance = 0;
+        
+            // Iterate through selected destinations and calculate routes
+            var routePromises = [];
+            for (let i = 0; i < selectedDestinations.length - 1; i++) {
+                var from = [parseFloat(selectedDestinations[i].lon), parseFloat(selectedDestinations[i].lat)];
+                var to = [parseFloat(selectedDestinations[i + 1].lon), parseFloat(selectedDestinations[i + 1].lat)];
+        
+                var apiUrl = `https://api.openrouteservice.org/v2/directions/${mode}?api_key=${apiKey}&start=${from.join(',')}&end=${to.join(',')}`;
+        
+                routePromises.push(axios.get(apiUrl));
+            }
+        
+            var currentLayerIndex = 0;
+        
+            function displayRoute(index) {
+                routePromises[index]
+                    .then(response => {
+                        var routeGeometry = response.data.features[0].geometry;
+                        var routeLayer = L.geoJSON(routeGeometry, {
+                            style: { color: 'blue', weight: 4 },
+                            className: 'route-layer' // Add a class to identify route layers
+                        }).addTo(map);
+        
+                        // Fit the map to the route bounds
+                        map.fitBounds(routeLayer.getBounds());
+        
+                        // Calculate the distance for this route and update total distance
+                        var distance = response.data.features[0].properties.segments[0].distance;
+                        totalDistance += distance;
+
+        
+                        currentLayerIndex++;
+        
+                        if (currentLayerIndex < routePromises.length) {
+                            displayRoute(currentLayerIndex);
+                        } else {
+                            // Update route information
+                            var formattedDistance = (totalDistance / 1000).toFixed(2) + ' km';
+                            totalDist = formattedDistance
+                            routeInfo.textContent = 'Total distance : ' + formattedDistance;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    });
+            }
+        
+            displayRoute(currentLayerIndex);
+
+        }
+
+        function saveStops() {
+            // Gather data about stops
+            var csrfToken = '{{ csrf_token }}';
+            
+            // Send data to Django view
+            axios.post('{% url "save_destination" %}',{ stops: selectedDestinations , totalDistance : totalDist})
+            .then(response => {
+                var downloadButton = document.getElementById('download-btn');
+                downloadButton.style.display = 'inline'; // Display the button
+                downloadButton.textContent = 'Download PDF';
+                downloadButton.onclick = function() {
+                    window.open('{% url "download_pdf" %}', '_blank');
+                };
+                selectedStops = []; // Clear the selected stops array
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+
+        
+
+
+        document.getElementById('searchInput').addEventListener('input', function() {
+            var query = this.value.trim();
+
+            if (query.length >= 3) {
+                clearMatchingPlaces();
+
+                // Use a geocoding service to search for places
+                var apiUrl = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(query);
+
+                axios.get(apiUrl)
+                    .then(response => {
+                        var places = response.data;
+                        places.forEach(place => {
+                            addMatchingPlace(place);
+                        });
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                    });
+            } else {
+                clearMatchingPlaces();
+            }
+        });
+    </script>
+</body>
+</html>
